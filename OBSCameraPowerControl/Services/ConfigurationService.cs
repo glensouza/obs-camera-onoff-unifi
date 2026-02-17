@@ -1,17 +1,16 @@
 using Azure;
 using Azure.Data.Tables;
-using Microsoft.Extensions.Logging;
-using UniFiCameraControl.Models;
+using OBSCameraPowerControl.Models;
 
-namespace UniFiCameraControl.Services;
+namespace OBSCameraPowerControl.Services;
 
 public class ConfigurationService : IConfigurationService
 {
     private readonly TableClient _tableClient;
     private readonly ILogger<ConfigurationService> _logger;
     private const string TableName = "PortConfigurations";
-    private bool _initialized = false;
-    private readonly SemaphoreSlim _initLock = new SemaphoreSlim(1, 1);
+    private bool _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
 
     public ConfigurationService(
         TableServiceClient tableServiceClient,
@@ -19,7 +18,6 @@ public class ConfigurationService : IConfigurationService
     {
         _logger = logger;
         _tableClient = tableServiceClient.GetTableClient(TableName);
-        // Don't call blocking operations in constructor - use lazy initialization
     }
 
     private async Task EnsureInitializedAsync()
@@ -31,7 +29,6 @@ public class ConfigurationService : IConfigurationService
         {
             if (_initialized) return;
 
-            // Create table if it doesn't exist
             await _tableClient.CreateIfNotExistsAsync();
 
             var defaultConfigs = new[]

@@ -54,16 +54,15 @@ sleep 30
 docker-compose ps
 ```
 
-You should see 3 containers running:
-- `unifi-camera-backend`
-- `unifi-camera-frontend`
+You should see 2 containers running:
+- `unifi-camera-app`
 - `unifi-camera-azurite`
 
 ### 4. Test the Application
 
 Open your web browser and navigate to:
 
-**Frontend UI**: http://localhost:8080
+**Application**: http://localhost:8080
 
 You should see:
 - A dark-themed control panel
@@ -71,52 +70,33 @@ You should see:
 - Toggle switches for each camera
 - Status indicators showing if ports are on/off
 
-**Swagger UI**: http://localhost:7071/api/swagger/ui
-
-Use this to test the API directly.
-
 ### 5. Configure OBS
 
 1. Open **OBS Studio**
-2. Add a **Browser** source to your scene:
-   - Right-click in Sources → Add → Browser
-   - Name it "Camera Control Panel"
-3. Configure the browser source:
-   - **URL**: `http://localhost:8080`
-   - **Width**: 800
-   - **Height**: 600
-   - **FPS**: 30
-   - Check ✓ **Refresh browser when scene becomes active**
-4. Click **OK**
-5. Position and resize the panel in your scene
+2. Window → Docks → Custom Browser Docks...
+3. Click the "+" button to add a new dock
+4. Enter a name (e.g. "Camera Control")
+5. Set the URL to `http://localhost:8080`
+6. Set width to ~400 and height to ~800
+7. Click **Apply**
 
 ### 6. Test the Controls
 
-1. In the OBS panel or web browser, toggle a camera switch
+1. In the OBS dock or web browser, toggle a camera switch
 2. Watch the status indicator change
 3. Verify the actual port on your switch changes state
 4. Check your camera power
 
 ## Troubleshooting
 
-### Can't see the frontend?
+### Can't see the application?
 
 ```bash
-# Check if frontend is running
-docker-compose logs frontend
+# Check if app is running
+docker-compose logs app
 
-# Restart frontend
-docker-compose restart frontend
-```
-
-### Backend API not responding?
-
-```bash
-# Check backend logs
-docker-compose logs backend
-
-# Look for connection errors to UniFi Controller
-# Verify your UNIFI_HOST, USERNAME, and PASSWORD are correct
+# Restart app
+docker-compose restart app
 ```
 
 ### UniFi connection errors?
@@ -132,8 +112,8 @@ docker-compose logs backend
 # Check Azurite is running
 docker-compose ps azurite
 
-# Check backend logs for table storage errors
-docker-compose logs backend | grep -i table
+# Check app logs for table storage errors
+docker-compose logs app | grep -i table
 
 # Reset the database (WARNING: Deletes all data)
 docker-compose down -v
@@ -142,12 +122,9 @@ docker-compose up -d
 
 ## Next Steps
 
-- **Customize camera names**: Use the API or directly in Azurite
 - **Deploy to Mac Mini**: See [Deployment Guide](DEPLOYMENT.md)
 - **Configure auto-start**: See Docker documentation for running on boot
-- **Secure the setup**: Add authentication, use HTTPS
 
-## Getting Help
 
 - Check the logs: `docker-compose logs -f`
 - Review the [README.md](README.md) for detailed documentation

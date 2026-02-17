@@ -1,7 +1,178 @@
 ﻿@page "/"
+@using OBSCameraPowerControl.Models
+@using OBSCameraPowerControl.Services
+@inject IUniFiService UniFiService
+@implements IDisposable
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Camera Control Panel</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="container">
+    <h1>Camera Control Panel</h1>
 
-Welcome to your new app.
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="status-message @statusCssClass">@statusMessage</div>
+    }
+
+    <div class="camera-grid">
+        @if (isLoading)
+        {
+            <div class="loading">Loading camera status</div>
+        }
+        else if (portStatuses.Count == 0)
+        {
+            <div class="loading">No cameras configured or error loading data</div>
+        }
+        else
+        {
+            @foreach (var port in portStatuses.OrderBy(p => p.PortNumber))
+            {
+                <div class="camera-card @(port.PoeEnabled ? "active" : "inactive")">
+                    <div class="camera-header">
+                        <div class="camera-name">@port.PortName</div>
+                        <div class="camera-status">
+                            <div class="status-indicator @(port.PoeEnabled ? "on" : "off")"></div>
+                            <span class="status-text">@(port.PoeEnabled ? "ON" : "OFF")</span>
+                        </div>
+                    </div>
+
+                    <div class="camera-info">
+                        <div class="info-row">
+                            <span class="info-label">Port Number:</span>
+                            <span class="info-value">@port.PortNumber</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Link Status:</span>
+                            <span class="info-value">@(port.IsEnabled ? "Connected" : "Disconnected")</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">PoE Status:</span>
+                            <span class="info-value">@(port.PoeEnabled ? "Enabled" : "Disabled")</span>
+                        </div>
+                    </div>
+
+                    <div class="camera-controls">
+                        <label class="toggle-switch">
+                            <input type="checkbox"
+                                   checked="@port.PoeEnabled"
+                                   disabled="@togglingPorts.Contains(port.PortNumber)"
+                                   @onchange="e => HandleToggleAsync(port.PortNumber, (bool)(e.Value ?? false))" />
+                            <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">
+                            @(port.PoeEnabled ? "Turn Off" : "Turn On")
+                        </span>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="footer">
+        <button class="btn-refresh" @onclick="RefreshAllAsync" disabled="@isLoading">Refresh All</button>
+    </div>
+</div>
+
+@code {
+    private List<PortStatus> portStatuses = [];
+    private HashSet<int> togglingPorts = [];
+    private bool isLoading = true;
+    private string? statusMessage;
+    private string statusCssClass = string.Empty;
+    private Timer? refreshTimer;
+    private CancellationTokenSource? statusClearCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPortStatusesAsync();
+        refreshTimer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await LoadPortStatusesAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+    }
+
+    private async Task LoadPortStatusesAsync()
+    {
+        try
+        {
+            portStatuses = await UniFiService.GetAllPortsStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error loading port statuses: {ex.Message}", "error");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshAllAsync()
+    {
+        ShowStatus("Refreshing...", "info");
+        isLoading = true;
+        await LoadPortStatusesAsync();
+    }
+
+    private async Task HandleToggleAsync(int portNumber, bool enable)
+    {
+        togglingPorts.Add(portNumber);
+        ShowStatus($"{(enable ? "Enabling" : "Disabling")} port {portNumber}...", "info");
+
+        try
+        {
+            var success = await UniFiService.SetPortStateAsync(portNumber, enable);
+
+            if (success)
+            {
+                ShowStatus($"Port {portNumber} {(enable ? "enabled" : "disabled")}", "success");
+            }
+            else
+            {
+                ShowStatus($"Failed to {(enable ? "enable" : "disable")} port {portNumber}", "error");
+            }
+
+            // Refresh status after a short delay to let the switch apply changes
+            await Task.Delay(1000);
+            await LoadPortStatusesAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error toggling port {portNumber}: {ex.Message}", "error");
+        }
+        finally
+        {
+            togglingPorts.Remove(portNumber);
+        }
+    }
+
+    private void ShowStatus(string message, string type)
+    {
+        statusClearCts?.Cancel();
+        statusMessage = message;
+        statusCssClass = type;
+
+        if (type != "error")
+        {
+            statusClearCts = new CancellationTokenSource();
+            var token = statusClearCts.Token;
+            _ = Task.Delay(3000, token).ContinueWith(_ =>
+            {
+                InvokeAsync(() =>
+                {
+                    statusMessage = null;
+                    statusCssClass = string.Empty;
+                    StateHasChanged();
+                });
+            }, TaskContinuationOptions.NotOnCanceled);
+        }
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
+        statusClearCts?.Cancel();
+        statusClearCts?.Dispose();
+    }
+}

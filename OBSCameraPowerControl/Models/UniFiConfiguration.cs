@@ -1,4 +1,4 @@
-namespace UniFiCameraControl.Models;
+namespace OBSCameraPowerControl.Models;
 
 public class UniFiConfiguration
 {

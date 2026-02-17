@@ -1,6 +1,6 @@
-using UniFiCameraControl.Models;
+using OBSCameraPowerControl.Models;
 
-namespace UniFiCameraControl.Services;
+namespace OBSCameraPowerControl.Services;
 
 public interface IUniFiService
 {

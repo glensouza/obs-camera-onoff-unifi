@@ -2,11 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using UniFiCameraControl.Models;
+using OBSCameraPowerControl.Models;
 
-namespace UniFiCameraControl.Services;
+namespace OBSCameraPowerControl.Services;
 
 public class UniFiService : IUniFiService
 {
@@ -14,7 +13,7 @@ public class UniFiService : IUniFiService
     private readonly UniFiConfiguration _config;
     private readonly ILogger<UniFiService> _logger;
     private readonly IConfigurationService _configService;
-    private readonly SemaphoreSlim _authLock = new SemaphoreSlim(1, 1);
+    private readonly SemaphoreSlim _authLock = new(1, 1);
     private string? _authCookie;
 
     public UniFiService(
@@ -35,13 +34,12 @@ public class UniFiService : IUniFiService
         await _authLock.WaitAsync();
         try
         {
-            // Check if another thread authenticated while we were waiting
             if (!string.IsNullOrEmpty(_authCookie))
             {
                 return true;
             }
 
-            var loginUrl = $"/api/login";
+            var loginUrl = "/api/login";
             var loginData = new
             {
                 username = _config.Username,
@@ -84,7 +82,6 @@ public class UniFiService : IUniFiService
         string url,
         HttpContent? content = null)
     {
-        // Buffer the content so we can recreate it for retries
         byte[]? contentBytes = null;
         string? contentMediaType = null;
 
@@ -129,6 +126,7 @@ public class UniFiService : IUniFiService
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
+            _authCookie = null;
             await AuthenticateAsync();
             var retryRequest = CreateRequest();
             response = await _httpClient.SendAsync(retryRequest);
@@ -207,7 +205,7 @@ public class UniFiService : IUniFiService
         try
         {
             var url = $"/api/s/{_config.SiteName}/rest/device/{_config.SwitchMac}";
-            
+
             var payload = new
             {
                 port_overrides = new[]

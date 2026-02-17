@@ -48,14 +48,10 @@ jobs:
       - name: Check service health
         run: |
           docker-compose ps
-          echo "Backend logs:"
-          docker-compose logs backend | tail -20
-          echo "Frontend logs:"
-          docker-compose logs frontend | tail -20
+          echo "App logs:"
+          docker-compose logs app | tail -20
 
       - name: Display deployment info
         run: |
           echo "✅ Deployment complete!"
-          echo "Frontend: http://localhost:8080"
-          echo "Backend API: http://localhost:7071/api"
-          echo "Swagger UI: http://localhost:7071/api/swagger/ui"
+          echo "Application: http://localhost:8080"
