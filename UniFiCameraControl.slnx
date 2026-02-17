@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/solution/">
     <File Path=".env.example" />
+    <File Path=".github/COPILOT_INSTRUCTIONS.md" />
     <File Path=".gitignore" />
     <File Path="DEPLOYMENT.md" />
     <File Path="docker-compose.yml" />

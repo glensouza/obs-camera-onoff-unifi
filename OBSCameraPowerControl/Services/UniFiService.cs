@@ -9,78 +9,71 @@ namespace OBSCameraPowerControl.Services;
 
 public class UniFiService : IUniFiService
 {
-    private readonly HttpClient _httpClient;
-    private readonly UniFiConfiguration _config;
-    private readonly ILogger<UniFiService> _logger;
-    private readonly IConfigurationService _configService;
-    private readonly SemaphoreSlim _authLock = new(1, 1);
-    private string? _authCookie;
+    private readonly HttpClient httpClient;
+    private readonly UniFiConfiguration config;
+    private readonly ILogger<UniFiService> logger;
+    private readonly IConfigurationService configService;
+    private readonly SemaphoreSlim authLock = new(1, 1);
+    private string? authCookie;
 
-    public UniFiService(
-        HttpClient httpClient,
-        IOptions<UniFiConfiguration> config,
-        ILogger<UniFiService> logger,
-        IConfigurationService configService)
+    public UniFiService(HttpClient httpClient, IOptions<UniFiConfiguration> config, ILogger<UniFiService> logger, IConfigurationService configService)
     {
-        _httpClient = httpClient;
-        _config = config.Value;
-        _logger = logger;
-        _configService = configService;
-        _httpClient.BaseAddress = new Uri(_config.Host.TrimEnd('/'));
+        this.httpClient = httpClient;
+        this.config = config.Value;
+        this.logger = logger;
+        this.configService = configService;
+        this.httpClient.BaseAddress = new Uri(this.config.Host.TrimEnd('/'));
     }
 
     private async Task<bool> AuthenticateAsync()
     {
-        await _authLock.WaitAsync();
+        await this.authLock.WaitAsync();
         try
         {
-            if (!string.IsNullOrEmpty(_authCookie))
+            if (!string.IsNullOrEmpty(this.authCookie))
             {
                 return true;
             }
 
-            var loginUrl = "/api/login";
+            const string loginUrl = "/api/login";
             var loginData = new
             {
-                username = _config.Username,
-                password = _config.Password
+                username = this.config.Username,
+                password = this.config.Password
             };
 
-            var content = new StringContent(
+            StringContent content = new(
                 JsonSerializer.Serialize(loginData),
                 Encoding.UTF8,
                 "application/json");
 
-            var response = await _httpClient.PostAsync(loginUrl, content);
+            HttpResponseMessage response = await this.httpClient.PostAsync(loginUrl, content);
 
             if (response.IsSuccessStatusCode)
             {
-                if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
+                if (response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies))
                 {
-                    _authCookie = string.Join("; ", cookies);
-                    _logger.LogInformation("Successfully authenticated to UniFi controller");
+                    this.authCookie = string.Join("; ", cookies);
+                    this.logger.LogInformation("Successfully authenticated to UniFi controller");
                     return true;
                 }
             }
 
-            _logger.LogError("Authentication failed: {StatusCode}", response.StatusCode);
+            this.logger.LogError("Authentication failed: {StatusCode}", response.StatusCode);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during authentication");
+            this.logger.LogError(ex, "Error during authentication");
             return false;
         }
         finally
         {
-            _authLock.Release();
+            this.authLock.Release();
         }
     }
 
-    private async Task<HttpResponseMessage> MakeAuthenticatedRequestAsync(
-        HttpMethod method,
-        string url,
-        HttpContent? content = null)
+    private async Task<HttpResponseMessage> MakeAuthenticatedRequestAsync(HttpMethod method, string url, HttpContent? content = null)
     {
         byte[]? contentBytes = null;
         string? contentMediaType = null;
@@ -94,18 +87,32 @@ public class UniFiService : IUniFiService
             }
         }
 
-        if (string.IsNullOrEmpty(_authCookie))
+        if (string.IsNullOrEmpty(this.authCookie))
         {
-            await AuthenticateAsync();
+            await this.AuthenticateAsync();
         }
+
+        HttpRequestMessage initialRequest = CreateRequest();
+        HttpResponseMessage response = await this.httpClient.SendAsync(initialRequest);
+
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        this.authCookie = null;
+        await this.AuthenticateAsync();
+        HttpRequestMessage retryRequest = CreateRequest();
+        response = await this.httpClient.SendAsync(retryRequest);
+        return response;
 
         HttpRequestMessage CreateRequest()
         {
-            var request = new HttpRequestMessage(method, url);
+            HttpRequestMessage request = new(method, url);
 
             if (contentBytes != null)
             {
-                var newContent = new ByteArrayContent(contentBytes);
+                ByteArrayContent newContent = new(contentBytes);
                 if (!string.IsNullOrEmpty(contentMediaType))
                 {
                     newContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentMediaType);
@@ -113,60 +120,48 @@ public class UniFiService : IUniFiService
                 request.Content = newContent;
             }
 
-            if (!string.IsNullOrEmpty(_authCookie))
+            if (!string.IsNullOrEmpty(this.authCookie))
             {
-                request.Headers.Add("Cookie", _authCookie);
+                request.Headers.Add("Cookie", this.authCookie);
             }
 
             return request;
         }
-
-        var initialRequest = CreateRequest();
-        var response = await _httpClient.SendAsync(initialRequest);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            _authCookie = null;
-            await AuthenticateAsync();
-            var retryRequest = CreateRequest();
-            response = await _httpClient.SendAsync(retryRequest);
-        }
-        return response;
     }
 
     public async Task<PortStatus?> GetPortStatusAsync(int portNumber)
     {
         try
         {
-            var url = $"/api/s/{_config.SiteName}/stat/device/{_config.SwitchMac}";
-            var response = await MakeAuthenticatedRequestAsync(HttpMethod.Get, url);
+            string url = $"/api/s/{this.config.SiteName}/stat/device/{this.config.SwitchMac}";
+            HttpResponseMessage response = await this.MakeAuthenticatedRequestAsync(HttpMethod.Get, url);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Failed to get port status: {StatusCode}", response.StatusCode);
+                this.logger.LogError("Failed to get port status: {StatusCode}", response.StatusCode);
                 return null;
             }
 
-            var json = await response.Content.ReadAsStringAsync();
-            var data = JsonSerializer.Deserialize<JsonElement>(json);
+            string json = await response.Content.ReadAsStringAsync();
+            JsonElement data = JsonSerializer.Deserialize<JsonElement>(json);
 
-            if (data.TryGetProperty("data", out var dataArray) && dataArray.ValueKind == JsonValueKind.Array)
+            if (data.TryGetProperty("data", out JsonElement dataArray) && dataArray.ValueKind == JsonValueKind.Array)
             {
-                foreach (var device in dataArray.EnumerateArray())
+                foreach (JsonElement device in dataArray.EnumerateArray())
                 {
-                    if (device.TryGetProperty("port_table", out var portTable))
+                    if (device.TryGetProperty("port_table", out JsonElement portTable))
                     {
-                        foreach (var port in portTable.EnumerateArray())
+                        foreach (JsonElement port in portTable.EnumerateArray())
                         {
-                            if (port.TryGetProperty("port_idx", out var portIdx) && portIdx.GetInt32() == portNumber)
+                            if (port.TryGetProperty("port_idx", out JsonElement portIdx) && portIdx.GetInt32() == portNumber)
                             {
-                                var portConfig = await _configService.GetPortConfigurationAsync(portNumber);
+                                PortConfiguration? portConfig = await this.configService.GetPortConfigurationAsync(portNumber);
                                 return new PortStatus
                                 {
                                     PortNumber = portNumber,
                                     PortName = portConfig?.PortName ?? $"Port {portNumber}",
-                                    IsEnabled = port.TryGetProperty("up", out var up) && up.GetBoolean(),
-                                    PoeEnabled = port.TryGetProperty("poe_enable", out var poeEnable) && poeEnable.GetBoolean()
+                                    IsEnabled = port.TryGetProperty("up", out JsonElement up) && up.GetBoolean(),
+                                    PoeEnabled = port.TryGetProperty("poe_enable", out JsonElement poeEnable) && poeEnable.GetBoolean()
                                 };
                             }
                         }
@@ -178,19 +173,19 @@ public class UniFiService : IUniFiService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting port status for port {PortNumber}", portNumber);
+            this.logger.LogError(ex, "Error getting port status for port {PortNumber}", portNumber);
             return null;
         }
     }
 
     public async Task<List<PortStatus>> GetAllPortsStatusAsync()
     {
-        var statuses = new List<PortStatus>();
-        var portConfigs = await _configService.GetAllPortConfigurationsAsync();
+        List<PortStatus> statuses = [];
+        List<PortConfiguration> portConfigs = await this.configService.GetAllPortConfigurationsAsync();
 
-        foreach (var config in portConfigs)
+        foreach (PortConfiguration config in portConfigs)
         {
-            var status = await GetPortStatusAsync(config.PortNumber);
+            PortStatus? status = await this.GetPortStatusAsync(config.PortNumber);
             if (status != null)
             {
                 statuses.Add(status);
@@ -204,7 +199,7 @@ public class UniFiService : IUniFiService
     {
         try
         {
-            var url = $"/api/s/{_config.SiteName}/rest/device/{_config.SwitchMac}";
+            string url = $"/api/s/{this.config.SiteName}/rest/device/{this.config.SwitchMac}";
 
             var payload = new
             {
@@ -218,25 +213,25 @@ public class UniFiService : IUniFiService
                 }
             };
 
-            var content = new StringContent(
+            StringContent content = new(
                 JsonSerializer.Serialize(payload),
                 Encoding.UTF8,
                 "application/json");
 
-            var response = await MakeAuthenticatedRequestAsync(HttpMethod.Put, url, content);
+            HttpResponseMessage response = await this.MakeAuthenticatedRequestAsync(HttpMethod.Put, url, content);
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Successfully set port {PortNumber} to {State}", portNumber, enable ? "enabled" : "disabled");
+                this.logger.LogInformation("Successfully set port {PortNumber} to {State}", portNumber, enable ? "enabled" : "disabled");
                 return true;
             }
 
-            _logger.LogError("Failed to set port state: {StatusCode}", response.StatusCode);
+            this.logger.LogError("Failed to set port state: {StatusCode}", response.StatusCode);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error setting port state for port {PortNumber}", portNumber);
+            this.logger.LogError(ex, "Error setting port state for port {PortNumber}", portNumber);
             return false;
         }
     }

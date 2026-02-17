@@ -25,7 +25,7 @@
         }
         else
         {
-            @foreach (var port in portStatuses.OrderBy(p => p.PortNumber))
+            @foreach (PortStatus port in portStatuses.OrderBy(p => p.PortNumber))
             {
                 <div class="camera-card @(port.PoeEnabled ? "active" : "inactive")">
                     <div class="camera-header">
@@ -75,7 +75,7 @@
 
 @code {
     private List<PortStatus> portStatuses = [];
-    private HashSet<int> togglingPorts = [];
+    private readonly HashSet<int> togglingPorts = [];
     private bool isLoading = true;
     private string? statusMessage;
     private string statusCssClass = string.Empty;
@@ -122,7 +122,7 @@
 
         try
         {
-            var success = await UniFiService.SetPortStateAsync(portNumber, enable);
+            bool success = await UniFiService.SetPortStateAsync(portNumber, enable);
 
             if (success)
             {
@@ -153,20 +153,22 @@
         statusMessage = message;
         statusCssClass = type;
 
-        if (type != "error")
+        if (type == "error")
         {
-            statusClearCts = new CancellationTokenSource();
-            var token = statusClearCts.Token;
-            _ = Task.Delay(3000, token).ContinueWith(_ =>
-            {
-                InvokeAsync(() =>
-                {
-                    statusMessage = null;
-                    statusCssClass = string.Empty;
-                    StateHasChanged();
-                });
-            }, TaskContinuationOptions.NotOnCanceled);
+            return;
         }
+
+        statusClearCts = new CancellationTokenSource();
+        CancellationToken token = statusClearCts.Token;
+        _ = Task.Delay(3000, token).ContinueWith(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                statusMessage = null;
+                statusCssClass = string.Empty;
+                StateHasChanged();
+            });
+        }, TaskContinuationOptions.NotOnCanceled);
     }
 
     public void Dispose()
