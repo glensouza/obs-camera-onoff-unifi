@@ -1,0 +1,55 @@
+name: Deploy to Mac Mini
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted  # This will use your Mac mini as the runner
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env file from secrets
+        run: |
+          cat > .env << EOF
+          UNIFI_HOST=${{ secrets.UNIFI_HOST }}
+          UNIFI_USERNAME=${{ secrets.UNIFI_USERNAME }}
+          UNIFI_PASSWORD=${{ secrets.UNIFI_PASSWORD }}
+          UNIFI_SITE=${{ secrets.UNIFI_SITE }}
+          UNIFI_SWITCH_MAC=${{ secrets.UNIFI_SWITCH_MAC }}
+          UNIFI_IGNORE_SSL=true
+          EOF
+
+      - name: Stop existing containers
+        run: |
+          docker-compose down || true
+        continue-on-error: true
+
+      - name: Build and start services
+        run: |
+          docker-compose up -d --build
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services to start..."
+          sleep 10
+          
+      - name: Check service health
+        run: |
+          docker-compose ps
+          echo "Backend logs:"
+          docker-compose logs backend | tail -20
+          echo "Frontend logs:"
+          docker-compose logs frontend | tail -20
+
+      - name: Display deployment info
+        run: |
+          echo "✅ Deployment complete!"
+          echo "Frontend: http://localhost:8080"
+          echo "Backend API: http://localhost:7071/api"
+          echo "Swagger UI: http://localhost:7071/api/swagger/ui"
