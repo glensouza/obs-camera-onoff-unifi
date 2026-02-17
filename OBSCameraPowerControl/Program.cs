@@ -1,4 +1,3 @@
-using Azure.Data.Tables;
 using Microsoft.Extensions.Options;
 using OBSCameraPowerControl.Components;
 using OBSCameraPowerControl.Models;
@@ -12,40 +11,41 @@ builder.Services
     .AddInteractiveServerComponents();
 
 // Configure UniFi settings
-builder.Services.Configure<UniFiConfiguration>(builder.Configuration.GetSection("UniFi"));
+IConfigurationSection uniFiSection = builder.Configuration.GetSection("UniFi");
+UniFiConfiguration? uniFiConfig = uniFiSection.Get<UniFiConfiguration>();
+if (uniFiConfig == null || string.IsNullOrWhiteSpace(uniFiConfig.Host))
+{
+    throw new InvalidOperationException("Missing configuration: 'UniFi:Host' must be set.");
+}
 
-// Configure Azure Table Storage (Azurite for local dev)
-string storageConnectionString = builder.Configuration.GetValue<string>("AzureStorage") ?? "UseDevelopmentStorage=true";
-builder.Services.AddSingleton(new TableServiceClient(storageConnectionString));
-
-// Register services
-builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
+builder.Services.Configure<UniFiConfiguration>(uniFiSection);
 
 // Configure HttpClient with SSL handling for UniFi
-builder.Services.AddHttpClient<IUniFiService, UniFiService>()
+string uniFiHttpClientName = "UniFiService";
+builder.Services.AddHttpClient(uniFiHttpClientName)
     .ConfigurePrimaryHttpMessageHandler(() =>
     {
         HttpClientHandler handler = new();
         IConfigurationSection config = builder.Configuration.GetSection("UniFi");
-        bool ignoreSsl = config.GetValue<bool>("IgnoreSslErrors");
+        // In development treat SSL validation as optional to allow self-signed UniFi controller certs
+        bool ignoreSsl = config.GetValue<bool>("IgnoreSslErrors") || builder.Environment.IsDevelopment();
 
         if (ignoreSsl)
         {
-            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+            handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
         }
 
         return handler;
     });
 
-// Override default transient lifetime to singleton for auth cookie persistence
-builder.Services.AddSingleton<IUniFiService>(sp =>
+// Register as singleton for auth cookie persistence
+builder.Services.AddSingleton<UniFiService>(sp =>
 {
     IHttpClientFactory httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
-    HttpClient httpClient = httpClientFactory.CreateClient(typeof(IUniFiService).FullName ?? "IUniFiService");
+    HttpClient httpClient = httpClientFactory.CreateClient(uniFiHttpClientName);
     IOptions<UniFiConfiguration> config = sp.GetRequiredService<IOptions<UniFiConfiguration>>();
     ILogger<UniFiService> logger = sp.GetRequiredService<ILogger<UniFiService>>();
-    IConfigurationService configService = sp.GetRequiredService<IConfigurationService>();
-    return new UniFiService(httpClient, config, logger, configService);
+    return new UniFiService(httpClient, config, logger);
 });
 
 WebApplication app = builder.Build();
@@ -65,3 +65,4 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
