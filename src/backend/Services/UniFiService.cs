@@ -72,39 +72,55 @@ public class UniFiService : IUniFiService
         string url,
         HttpContent? content = null)
     {
+        // Buffer the content so we can recreate it for retries
+        byte[]? contentBytes = null;
+        string? contentMediaType = null;
+
+        if (content != null)
+        {
+            contentBytes = await content.ReadAsByteArrayAsync();
+            if (content.Headers.ContentType != null)
+            {
+                contentMediaType = content.Headers.ContentType.ToString();
+            }
+        }
+
         if (string.IsNullOrEmpty(_authCookie))
         {
             await AuthenticateAsync();
         }
 
-        var request = new HttpRequestMessage(method, url);
-        if (content != null)
+        HttpRequestMessage CreateRequest()
         {
-            request.Content = content;
-        }
+            var request = new HttpRequestMessage(method, url);
 
-        if (!string.IsNullOrEmpty(_authCookie))
-        {
-            request.Headers.Add("Cookie", _authCookie);
-        }
-
-        var response = await _httpClient.SendAsync(request);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            await AuthenticateAsync();
-            request = new HttpRequestMessage(method, url);
-            if (content != null)
+            if (contentBytes != null)
             {
-                request.Content = content;
+                var newContent = new ByteArrayContent(contentBytes);
+                if (!string.IsNullOrEmpty(contentMediaType))
+                {
+                    newContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentMediaType);
+                }
+                request.Content = newContent;
             }
+
             if (!string.IsNullOrEmpty(_authCookie))
             {
                 request.Headers.Add("Cookie", _authCookie);
             }
-            response = await _httpClient.SendAsync(request);
+
+            return request;
         }
 
+        var initialRequest = CreateRequest();
+        var response = await _httpClient.SendAsync(initialRequest);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await AuthenticateAsync();
+            var retryRequest = CreateRequest();
+            response = await _httpClient.SendAsync(retryRequest);
+        }
         return response;
     }
 
