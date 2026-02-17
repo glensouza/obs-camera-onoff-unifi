@@ -20,12 +20,14 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background-color: var(--bg-dark);
     color: var(--text-primary);
-    padding: 20px;
-    min-height: 100vh;
+    /* Reduce outer padding for dock use */
+    padding: 8px;
+    /* Use full available height so the OBS dock can size the panel correctly */
+    height: 100%;
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 480px; /* compact for dock */
     margin: 0 auto;
 }
 

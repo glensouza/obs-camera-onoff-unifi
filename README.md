@@ -155,22 +155,24 @@ Content-Type: application/json
 
 ### Adding to OBS
 
+This UI is intended to be used as an OBS "Custom Browser Dock" (a docked panel inside OBS), not as a scene Browser Source. Using a dock gives you a persistent control panel while you manage scenes and sources.
+
+To add as a Custom Browser Dock:
+
 1. Open OBS Studio
-2. Add a new **Browser** source
-3. Configure the source:
-   - **URL**: `http://localhost:8080` (or your deployment URL)
-   - **Width**: 1920
-   - **Height**: 1080
-   - **FPS**: 30
-   - Check "Shutdown source when not visible" (optional)
-   - Check "Refresh browser when scene becomes active" (recommended)
+2. Window -> Docks -> Custom Browser Docks...
+3. Click the "+" button to add a new dock
+4. Enter a name (e.g. "Camera Control")
+5. Set the URL to `http://localhost:8080` (or your deployment URL)
+6. Set a reasonable width (e.g. 400) and height (e.g. 800) and click "Apply"
+
+If you prefer a floating panel inside a scene, use a Browser Source and set the URL to the same endpoint.
 
 ### Recommended Settings
 
-For a clean overlay:
-- Use a smaller resolution like 800x600 if you want a compact control panel
-- Enable "Control audio via OBS" if needed
-- Position in a corner or use as a dock panel
+- Use the dock for persistent access to controls during production
+- For a compact dock set width to ~320–480 and height to ~600–1000 depending on your workflow
+- If using as a Browser Source in a scene, enable "Refresh browser when scene becomes active" (recommended)
 
 ## Deployment to Mac Mini
 
