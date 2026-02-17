@@ -41,6 +41,8 @@ public class PortControlFunctions
         if (status == null)
         {
             response.StatusCode = HttpStatusCode.NotFound;
+            response.Headers.Add("Content-Type", "application/json");
+            response.Headers.Add("Access-Control-Allow-Origin", "*");
             await response.WriteAsJsonAsync(new { error = $"Port {portNumber} not found" });
             return response;
         }
@@ -90,6 +92,8 @@ public class PortControlFunctions
         {
             _logger.LogError(ex, "Error parsing request body");
             var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            errorResponse.Headers.Add("Content-Type", "application/json");
+            errorResponse.Headers.Add("Access-Control-Allow-Origin", "*");
             await errorResponse.WriteAsJsonAsync(new { error = "Invalid request body" });
             return errorResponse;
         }
@@ -97,6 +101,8 @@ public class PortControlFunctions
         if (request == null)
         {
             var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            errorResponse.Headers.Add("Content-Type", "application/json");
+            errorResponse.Headers.Add("Access-Control-Allow-Origin", "*");
             await errorResponse.WriteAsJsonAsync(new { error = "Request body is required" });
             return errorResponse;
         }
@@ -107,6 +113,7 @@ public class PortControlFunctions
         if (success)
         {
             response.StatusCode = HttpStatusCode.OK;
+            response.Headers.Add("Content-Type", "application/json");
             response.Headers.Add("Access-Control-Allow-Origin", "*");
             await response.WriteAsJsonAsync(new { 
                 success = true, 
@@ -116,6 +123,8 @@ public class PortControlFunctions
         else
         {
             response.StatusCode = HttpStatusCode.InternalServerError;
+            response.Headers.Add("Content-Type", "application/json");
+            response.Headers.Add("Access-Control-Allow-Origin", "*");
             await response.WriteAsJsonAsync(new { 
                 success = false, 
                 error = "Failed to set port state" 

@@ -10,6 +10,8 @@ public class ConfigurationService : IConfigurationService
     private readonly TableClient _tableClient;
     private readonly ILogger<ConfigurationService> _logger;
     private const string TableName = "PortConfigurations";
+    private bool _initialized = false;
+    private readonly object _initLock = new object();
 
     public ConfigurationService(
         TableServiceClient tableServiceClient,
@@ -18,51 +20,59 @@ public class ConfigurationService : IConfigurationService
         _logger = logger;
         _tableClient = tableServiceClient.GetTableClient(TableName);
         _tableClient.CreateIfNotExists();
-        
-        // Initialize default configurations for 3 ports if they don't exist
-        InitializeDefaultConfigurationsAsync().Wait();
     }
 
-    private async Task InitializeDefaultConfigurationsAsync()
+    private async Task EnsureInitializedAsync()
     {
-        try
-        {
-            var defaultConfigs = new[]
-            {
-                new PortConfiguration { PortNumber = 1, PortName = "Camera 1" },
-                new PortConfiguration { PortNumber = 2, PortName = "Camera 2" },
-                new PortConfiguration { PortNumber = 3, PortName = "Camera 3" }
-            };
+        if (_initialized) return;
 
-            foreach (var config in defaultConfigs)
+        lock (_initLock)
+        {
+            if (_initialized) return;
+
+            try
             {
-                var entity = new PortConfigurationEntity
+                var defaultConfigs = new[]
                 {
-                    PartitionKey = "Default",
-                    RowKey = config.PortNumber.ToString(),
-                    PortNumber = config.PortNumber,
-                    PortName = config.PortName
+                    new PortConfiguration { PortNumber = 1, PortName = "Camera 1" },
+                    new PortConfiguration { PortNumber = 2, PortName = "Camera 2" },
+                    new PortConfiguration { PortNumber = 3, PortName = "Camera 3" }
                 };
 
-                try
+                foreach (var config in defaultConfigs)
                 {
-                    await _tableClient.GetEntityAsync<PortConfigurationEntity>("Default", config.PortNumber.ToString());
+                    var entity = new PortConfigurationEntity
+                    {
+                        PartitionKey = "Default",
+                        RowKey = config.PortNumber.ToString(),
+                        PortNumber = config.PortNumber,
+                        PortName = config.PortName
+                    };
+
+                    try
+                    {
+                        _tableClient.GetEntity<PortConfigurationEntity>("Default", config.PortNumber.ToString());
+                    }
+                    catch (RequestFailedException ex) when (ex.Status == 404)
+                    {
+                        _tableClient.AddEntity(entity);
+                        _logger.LogInformation("Created default configuration for port {PortNumber}", config.PortNumber);
+                    }
                 }
-                catch (RequestFailedException ex) when (ex.Status == 404)
-                {
-                    await _tableClient.AddEntityAsync(entity);
-                    _logger.LogInformation("Created default configuration for port {PortNumber}", config.PortNumber);
-                }
+
+                _initialized = true;
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error initializing default configurations");
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initializing default configurations");
+            }
         }
     }
 
     public async Task<PortConfiguration?> GetPortConfigurationAsync(int portNumber)
     {
+        await EnsureInitializedAsync();
+
         try
         {
             var entity = await _tableClient.GetEntityAsync<PortConfigurationEntity>("Default", portNumber.ToString());
@@ -86,6 +96,8 @@ public class ConfigurationService : IConfigurationService
 
     public async Task<List<PortConfiguration>> GetAllPortConfigurationsAsync()
     {
+        await EnsureInitializedAsync();
+
         var configurations = new List<PortConfiguration>();
 
         try
@@ -109,6 +121,8 @@ public class ConfigurationService : IConfigurationService
 
     public async Task SavePortConfigurationAsync(PortConfiguration config)
     {
+        await EnsureInitializedAsync();
+
         try
         {
             var entity = new PortConfigurationEntity

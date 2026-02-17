@@ -26,6 +26,22 @@ builder.Services.AddSingleton(new TableServiceClient(storageConnectionString));
 
 // Register services
 builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
-builder.Services.AddHttpClient<IUniFiService, UniFiService>();
+
+// Configure HttpClient with SSL handling for UniFi
+builder.Services.AddHttpClient<IUniFiService, UniFiService>()
+    .ConfigurePrimaryHttpMessageHandler(() =>
+    {
+        var handler = new HttpClientHandler();
+        var config = builder.Configuration.GetSection("UniFi");
+        var ignoreSsl = config.GetValue<bool>("IgnoreSslErrors");
+        
+        if (ignoreSsl)
+        {
+            handler.ServerCertificateCustomValidationCallback = 
+                (message, cert, chain, errors) => true;
+        }
+        
+        return handler;
+    });
 
 builder.Build().Run();

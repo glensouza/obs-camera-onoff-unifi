@@ -26,16 +26,6 @@ public class UniFiService : IUniFiService
         _config = config.Value;
         _logger = logger;
         _configService = configService;
-
-        if (_config.IgnoreSslErrors)
-        {
-            var handler = new HttpClientHandler
-            {
-                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-            };
-            _httpClient = new HttpClient(handler);
-        }
-
         _httpClient.BaseAddress = new Uri(_config.Host.TrimEnd('/'));
     }
 
