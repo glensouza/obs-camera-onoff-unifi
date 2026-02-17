@@ -23,4 +23,5 @@
   <Folder Name="/workflow/">
     <File Path=".github/workflows/deploy.yml" />
   </Folder>
+  <Project Path="OBSCameraPowerControl/OBSCameraPowerControl.csproj" Id="c0f1209e-629a-4a97-9ef5-b9d2c90e514a" />
 </Solution>
