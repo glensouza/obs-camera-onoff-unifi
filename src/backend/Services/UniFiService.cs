@@ -14,6 +14,7 @@ public class UniFiService : IUniFiService
     private readonly UniFiConfiguration _config;
     private readonly ILogger<UniFiService> _logger;
     private readonly IConfigurationService _configService;
+    private readonly SemaphoreSlim _authLock = new SemaphoreSlim(1, 1);
     private string? _authCookie;
 
     public UniFiService(
@@ -31,8 +32,15 @@ public class UniFiService : IUniFiService
 
     private async Task<bool> AuthenticateAsync()
     {
+        await _authLock.WaitAsync();
         try
         {
+            // Check if another thread authenticated while we were waiting
+            if (!string.IsNullOrEmpty(_authCookie))
+            {
+                return true;
+            }
+
             var loginUrl = $"/api/login";
             var loginData = new
             {
@@ -64,6 +72,10 @@ public class UniFiService : IUniFiService
         {
             _logger.LogError(ex, "Error during authentication");
             return false;
+        }
+        finally
+        {
+            _authLock.Release();
         }
     }
 

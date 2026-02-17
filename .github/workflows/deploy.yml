@@ -17,23 +17,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create .env file from secrets
-        run: |
-          cat > .env << EOF
-          UNIFI_HOST=${{ secrets.UNIFI_HOST }}
-          UNIFI_USERNAME=${{ secrets.UNIFI_USERNAME }}
-          UNIFI_PASSWORD=${{ secrets.UNIFI_PASSWORD }}
-          UNIFI_SITE=${{ secrets.UNIFI_SITE }}
-          UNIFI_SWITCH_MAC=${{ secrets.UNIFI_SWITCH_MAC }}
-          UNIFI_IGNORE_SSL=true
-          EOF
-
       - name: Stop existing containers
+        env:
+          UNIFI_HOST: ${{ secrets.UNIFI_HOST }}
+          UNIFI_USERNAME: ${{ secrets.UNIFI_USERNAME }}
+          UNIFI_PASSWORD: ${{ secrets.UNIFI_PASSWORD }}
+          UNIFI_SITE: ${{ secrets.UNIFI_SITE }}
+          UNIFI_SWITCH_MAC: ${{ secrets.UNIFI_SWITCH_MAC }}
+          UNIFI_IGNORE_SSL: "true"
         run: |
           docker-compose down || true
         continue-on-error: true
 
       - name: Build and start services
+        env:
+          UNIFI_HOST: ${{ secrets.UNIFI_HOST }}
+          UNIFI_USERNAME: ${{ secrets.UNIFI_USERNAME }}
+          UNIFI_PASSWORD: ${{ secrets.UNIFI_PASSWORD }}
+          UNIFI_SITE: ${{ secrets.UNIFI_SITE }}
+          UNIFI_SWITCH_MAC: ${{ secrets.UNIFI_SWITCH_MAC }}
+          UNIFI_IGNORE_SSL: "true"
         run: |
           docker-compose up -d --build
 

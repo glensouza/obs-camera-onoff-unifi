@@ -2,9 +2,11 @@
 const API_BASE_URL = '/api'; // Using nginx proxy
 
 // Auto-refresh interval (in milliseconds)
-const REFRESH_INTERVAL = 5000; // 5 seconds
+// Increased to 20 seconds to reduce network traffic during long livestream sessions
+const REFRESH_INTERVAL = 20000; // 20 seconds
 
 let refreshTimer = null;
+let isUpdating = false; // Flag to prevent concurrent updates
 
 // Show status message
 function showStatus(message, type = 'info') {
@@ -118,7 +120,7 @@ function createCameraCard(portStatus) {
             <label class="toggle-switch">
                 <input type="checkbox" 
                        ${portStatus.poeEnabled ? 'checked' : ''} 
-                       onchange="handleToggle(${portStatus.portNumber}, this.checked)"
+                       data-port="${portStatus.portNumber}"
                        id="toggle-${portStatus.portNumber}">
                 <span class="slider"></span>
             </label>
@@ -145,29 +147,42 @@ async function updatePortStatus(portNumber) {
 
 // Update all ports status
 async function updateAllPortsStatus() {
-    const container = document.getElementById('camera-controls');
-    
-    // Show loading state
-    container.innerHTML = '<div class="loading">Loading camera status</div>';
-    
-    const statuses = await fetchAllPortsStatus();
-    
-    if (statuses.length === 0) {
-        container.innerHTML = '<div class="loading">No cameras configured or error loading data</div>';
+    // Prevent concurrent executions
+    if (isUpdating) {
+        console.log('Update already in progress, skipping...');
         return;
     }
 
-    // Clear container
-    container.innerHTML = '';
+    isUpdating = true;
+    const container = document.getElementById('camera-controls');
     
-    // Sort by port number
-    statuses.sort((a, b) => a.portNumber - b.portNumber);
-    
-    // Create cards for each port
-    statuses.forEach(status => {
-        const card = createCameraCard(status);
-        container.appendChild(card);
-    });
+    try {
+        // Show loading state only if container is empty
+        if (container.children.length === 0) {
+            container.innerHTML = '<div class="loading">Loading camera status</div>';
+        }
+        
+        const statuses = await fetchAllPortsStatus();
+        
+        if (statuses.length === 0) {
+            container.innerHTML = '<div class="loading">No cameras configured or error loading data</div>';
+            return;
+        }
+
+        // Clear container
+        container.innerHTML = '';
+        
+        // Sort by port number
+        statuses.sort((a, b) => a.portNumber - b.portNumber);
+        
+        // Create cards for each port
+        statuses.forEach(status => {
+            const card = createCameraCard(status);
+            container.appendChild(card);
+        });
+    } finally {
+        isUpdating = false;
+    }
 }
 
 // Handle toggle switch
@@ -177,13 +192,21 @@ async function handleToggle(portNumber, enable) {
     
     showStatus(`${enable ? 'Enabling' : 'Disabling'} port ${portNumber}...`, 'info');
     
-    const result = await setPortState(portNumber, enable);
-    
-    toggle.disabled = false;
-    
-    if (!result.success) {
-        // Revert toggle if failed
+    try {
+        const result = await setPortState(portNumber, enable);
+        
+        if (!result || !result.success) {
+            // Revert toggle if failed
+            toggle.checked = !enable;
+        }
+    } catch (error) {
+        // On error, revert the toggle
         toggle.checked = !enable;
+        showStatus(`Failed to ${enable ? 'enable' : 'disable'} port ${portNumber}.`, 'error');
+    } finally {
+        toggle.disabled = false;
+        // Always refresh status to ensure UI accuracy
+        await updateAllPortsStatus();
     }
 }
 
@@ -216,6 +239,15 @@ async function init() {
     document.getElementById('refresh-all').addEventListener('click', () => {
         showStatus('Refreshing...', 'info');
         updateAllPortsStatus();
+    });
+
+    // Use event delegation for toggle switches instead of inline handlers
+    document.getElementById('camera-controls').addEventListener('change', (event) => {
+        if (event.target.type === 'checkbox' && event.target.dataset.port) {
+            const portNumber = parseInt(event.target.dataset.port, 10);
+            const enable = event.target.checked;
+            handleToggle(portNumber, enable);
+        }
     });
 }
 

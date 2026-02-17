@@ -11,7 +11,7 @@ public class ConfigurationService : IConfigurationService
     private readonly ILogger<ConfigurationService> _logger;
     private const string TableName = "PortConfigurations";
     private bool _initialized = false;
-    private readonly object _initLock = new object();
+    private readonly SemaphoreSlim _initLock = new SemaphoreSlim(1, 1);
 
     public ConfigurationService(
         TableServiceClient tableServiceClient,
@@ -19,53 +19,58 @@ public class ConfigurationService : IConfigurationService
     {
         _logger = logger;
         _tableClient = tableServiceClient.GetTableClient(TableName);
-        _tableClient.CreateIfNotExists();
+        // Don't call blocking operations in constructor - use lazy initialization
     }
 
     private async Task EnsureInitializedAsync()
     {
         if (_initialized) return;
 
-        lock (_initLock)
+        await _initLock.WaitAsync();
+        try
         {
             if (_initialized) return;
 
-            try
+            // Create table if it doesn't exist
+            await _tableClient.CreateIfNotExistsAsync();
+
+            var defaultConfigs = new[]
             {
-                var defaultConfigs = new[]
+                new PortConfiguration { PortNumber = 1, PortName = "Camera 1" },
+                new PortConfiguration { PortNumber = 2, PortName = "Camera 2" },
+                new PortConfiguration { PortNumber = 3, PortName = "Camera 3" }
+            };
+
+            foreach (var config in defaultConfigs)
+            {
+                var entity = new PortConfigurationEntity
                 {
-                    new PortConfiguration { PortNumber = 1, PortName = "Camera 1" },
-                    new PortConfiguration { PortNumber = 2, PortName = "Camera 2" },
-                    new PortConfiguration { PortNumber = 3, PortName = "Camera 3" }
+                    PartitionKey = "Default",
+                    RowKey = config.PortNumber.ToString(),
+                    PortNumber = config.PortNumber,
+                    PortName = config.PortName
                 };
 
-                foreach (var config in defaultConfigs)
+                try
                 {
-                    var entity = new PortConfigurationEntity
-                    {
-                        PartitionKey = "Default",
-                        RowKey = config.PortNumber.ToString(),
-                        PortNumber = config.PortNumber,
-                        PortName = config.PortName
-                    };
-
-                    try
-                    {
-                        _tableClient.GetEntity<PortConfigurationEntity>("Default", config.PortNumber.ToString());
-                    }
-                    catch (RequestFailedException ex) when (ex.Status == 404)
-                    {
-                        _tableClient.AddEntity(entity);
-                        _logger.LogInformation("Created default configuration for port {PortNumber}", config.PortNumber);
-                    }
+                    await _tableClient.GetEntityAsync<PortConfigurationEntity>("Default", config.PortNumber.ToString());
                 }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    await _tableClient.AddEntityAsync(entity);
+                    _logger.LogInformation("Created default configuration for port {PortNumber}", config.PortNumber);
+                }
+            }
 
-                _initialized = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error initializing default configurations");
-            }
+            _initialized = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initializing default configurations");
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 

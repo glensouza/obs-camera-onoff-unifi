@@ -4,6 +4,8 @@ using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using UniFiCameraControl.Models;
 using UniFiCameraControl.Services;
 
@@ -28,6 +30,7 @@ builder.Services.AddSingleton(new TableServiceClient(storageConnectionString));
 builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
 
 // Configure HttpClient with SSL handling for UniFi
+// Register as Singleton to maintain authentication cookie state across requests
 builder.Services.AddHttpClient<IUniFiService, UniFiService>()
     .ConfigurePrimaryHttpMessageHandler(() =>
     {
@@ -35,6 +38,9 @@ builder.Services.AddHttpClient<IUniFiService, UniFiService>()
         var config = builder.Configuration.GetSection("UniFi");
         var ignoreSsl = config.GetValue<bool>("IgnoreSslErrors");
         
+        // WARNING: Disabling SSL validation is insecure and should only be used for development
+        // with self-signed certificates. In production, use proper certificate validation or
+        // install the UniFi certificate in the trusted store.
         if (ignoreSsl)
         {
             handler.ServerCertificateCustomValidationCallback = 
@@ -43,5 +49,16 @@ builder.Services.AddHttpClient<IUniFiService, UniFiService>()
         
         return handler;
     });
+
+// Override default transient lifetime to singleton for auth cookie persistence
+builder.Services.AddSingleton<IUniFiService>(sp =>
+{
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient(typeof(IUniFiService).FullName ?? "IUniFiService");
+    var config = sp.GetRequiredService<IOptions<UniFiConfiguration>>();
+    var logger = sp.GetRequiredService<ILogger<UniFiService>>();
+    var configService = sp.GetRequiredService<IConfigurationService>();
+    return new UniFiService(httpClient, config, logger, configService);
+});
 
 builder.Build().Run();

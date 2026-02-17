@@ -11,6 +11,12 @@ using UniFiCameraControl.Services;
 
 namespace UniFiCameraControl.Functions;
 
+/// <summary>
+/// Port control API endpoints for managing UniFi PoE switch ports.
+/// NOTE: These endpoints use AuthorizationLevel.Anonymous which is intended for
+/// internal/private network use only. For production deployments accessible from
+/// public networks, implement proper authentication (API keys, JWT, etc.).
+/// </summary>
 public class PortControlFunctions
 {
     private readonly ILogger<PortControlFunctions> _logger;
@@ -29,11 +35,22 @@ public class PortControlFunctions
     [OpenApiParameter(name: "portNumber", In = ParameterLocation.Path, Required = true, Type = typeof(int), Description = "The port number (1-3)")]
     [OpenApiResponseWithBody(statusCode: HttpStatusCode.OK, contentType: "application/json", bodyType: typeof(PortStatus), Description = "Port status retrieved successfully")]
     [OpenApiResponseWithBody(statusCode: HttpStatusCode.NotFound, contentType: "application/json", bodyType: typeof(object), Description = "Port not found")]
+    [OpenApiResponseWithBody(statusCode: HttpStatusCode.BadRequest, contentType: "application/json", bodyType: typeof(object), Description = "Invalid port number")]
     public async Task<HttpResponseData> GetPortStatus(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "ports/{portNumber}/status")] HttpRequestData req,
         int portNumber)
     {
         _logger.LogInformation("Getting status for port {PortNumber}", portNumber);
+
+        // Validate port number
+        if (portNumber < 1 || portNumber > 48)
+        {
+            var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            errorResponse.Headers.Add("Content-Type", "application/json");
+            errorResponse.Headers.Add("Access-Control-Allow-Origin", "*");
+            await errorResponse.WriteAsJsonAsync(new { error = "Port number must be between 1 and 48" });
+            return errorResponse;
+        }
 
         var status = await _unifiService.GetPortStatusAsync(portNumber);
         var response = req.CreateResponse();
@@ -82,6 +99,16 @@ public class PortControlFunctions
         int portNumber)
     {
         _logger.LogInformation("Setting state for port {PortNumber}", portNumber);
+
+        // Validate port number
+        if (portNumber < 1 || portNumber > 48)
+        {
+            var validationResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            validationResponse.Headers.Add("Content-Type", "application/json");
+            validationResponse.Headers.Add("Access-Control-Allow-Origin", "*");
+            await validationResponse.WriteAsJsonAsync(new { error = "Port number must be between 1 and 48" });
+            return validationResponse;
+        }
 
         PortControlRequest? request;
         try
@@ -134,13 +161,35 @@ public class PortControlFunctions
         return response;
     }
 
-    [Function("OptionsRequest")]
-    public HttpResponseData HandleOptions(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "options", Route = "{*route}")] HttpRequestData req)
+    [Function("PortsStatusOptions")]
+    public HttpResponseData HandlePortsStatusOptions(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "options", Route = "ports/status")] HttpRequestData req)
     {
         var response = req.CreateResponse(HttpStatusCode.OK);
         response.Headers.Add("Access-Control-Allow-Origin", "*");
-        response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        response.Headers.Add("Access-Control-Allow-Methods", "GET, OPTIONS");
+        response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
+        return response;
+    }
+
+    [Function("PortStatusOptions")]
+    public HttpResponseData HandlePortStatusOptions(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "options", Route = "ports/{portNumber}/status")] HttpRequestData req)
+    {
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        response.Headers.Add("Access-Control-Allow-Origin", "*");
+        response.Headers.Add("Access-Control-Allow-Methods", "GET, OPTIONS");
+        response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
+        return response;
+    }
+
+    [Function("PortStateOptions")]
+    public HttpResponseData HandlePortStateOptions(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "options", Route = "ports/{portNumber}/state")] HttpRequestData req)
+    {
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        response.Headers.Add("Access-Control-Allow-Origin", "*");
+        response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
         response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
         return response;
     }
