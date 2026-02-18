@@ -32,6 +32,62 @@ public class UniFiService
     }
 
     /// <summary>
+    /// Sets the PoE state for multiple ports in a single request.
+    /// </summary>
+    public async Task<bool> SetPortsStateAsync(IEnumerable<int> portNumbers, bool enable)
+    {
+        try
+        {
+            if (portNumbers == null)
+            {
+                return false;
+            }
+
+            // If no ports provided, nothing to do
+            List<int> ports = portNumbers.Where(p => p > 0).ToList();
+            if (ports.Count == 0)
+            {
+                return true;
+            }
+
+            string deviceIdentifier = this.deviceId ?? this.config.SwitchMac;
+            string url = $"{this.apiPrefix}/api/s/{this.config.SiteName}/rest/device/{deviceIdentifier}";
+
+            var overrides = ports.Select(p => new
+            {
+                port_idx = p,
+                poe_mode = enable ? "auto" : "off"
+            }).ToArray();
+
+            var payload = new
+            {
+                port_overrides = overrides
+            };
+
+            StringContent content = new(
+                JsonSerializer.Serialize(payload),
+                Encoding.UTF8,
+                "application/json");
+
+            HttpResponseMessage response = await this.MakeAuthenticatedRequestAsync(HttpMethod.Put, url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                this.logger.LogInformation("Successfully set multiple ports to {State}", enable ? "enabled" : "disabled");
+                return true;
+            }
+
+            this.logger.LogError("Failed to set multiple ports state: {StatusCode}", response.StatusCode);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            this.logger.LogError(ex, "Error setting multiple port states");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Returns the set of port numbers currently being monitored.
     /// </summary>
     public IReadOnlySet<int> MonitoredPorts => this.monitoredPorts;

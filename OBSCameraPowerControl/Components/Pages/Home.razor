@@ -34,14 +34,10 @@
                     <div class="camera-header">
                         <div class="camera-name">@port.PortName</div>
                         <div class="camera-header-actions">
-                            <div class="camera-status">
-                                <div class="status-indicator @(port.PoeEnabled ? "on" : "off")"></div>
-                                <span class="status-text">@(port.PoeEnabled ? "ON" : "OFF")</span>
-                            </div>
                             <label class="toggle-switch">
                                 <input type="checkbox"
                                        checked="@port.PoeEnabled"
-                                       disabled="@togglingPorts.Contains(port.PortNumber)"
+                                       disabled="@(isMasterToggling || togglingPorts.Contains(port.PortNumber) || isLoading)"
                                        @onchange="e => HandleToggleAsync(port.PortNumber, (bool)(e.Value ?? false))" />
                                 <span class="slider"></span>
                             </label>
@@ -54,8 +50,26 @@
     </div>
 
     <div class="footer">
+        @if (monitoredStatuses.Count > 0)
+        {
+            <div class="master-switch-section">
+                <label class="toggle-switch">
+                    <input type="checkbox"
+                           checked="@AllMonitoredOn"
+                           disabled="@(isMasterToggling || isLoading)"
+                           @onchange="e => HandleMasterToggleAsync((bool)(e.Value ?? false))" />
+                    <span class="slider"></span>
+                </label>
+                <span class="master-label">Master</span>
+            </div>
+        }
+
+        <br />
+        <button class="btn-refresh" @onclick="RefreshAllAsync" disabled="@isLoading">Refresh All</button>
+
         @if (availablePorts.Count > 0)
         {
+            <br />
             <div class="add-camera-section">
                 <select @bind="selectedPortNumber">
                     <option value="0">-- Select a port --</option>
@@ -67,87 +81,93 @@
                 <button class="btn-add" @onclick="AddSelectedPort" disabled="@(selectedPortNumber == 0)">Add Camera</button>
             </div>
         }
-        <button class="btn-refresh" @onclick="RefreshAllAsync" disabled="@isLoading">Refresh All</button>
     </div>
 </div>
 
 @code {
-private List<PortStatus> allPortStatuses = [];
-private List<PortStatus> monitoredStatuses = [];
-private List<PortStatus> availablePorts = [];
-private readonly HashSet<int> togglingPorts = [];
-private bool isLoading = true;
-private string? statusMessage;
-private string statusCssClass = string.Empty;
-private Timer? refreshTimer;
-private CancellationTokenSource? statusClearCts;
-private int selectedPortNumber;
+    private List<PortStatus> allPortStatuses = [];
+    private List<PortStatus> monitoredStatuses = [];
+    private List<PortStatus> availablePorts = [];
+    private readonly HashSet<int> togglingPorts = [];
+    private bool isMasterToggling = false;
+    private bool isLoading = true;
+    private string? statusMessage;
+    private string statusCssClass = string.Empty;
+    private Timer? refreshTimer;
+    private CancellationTokenSource? statusClearCts;
+    private int selectedPortNumber;
 
-protected override async Task OnInitializedAsync()
-{
-    await LoadPortStatusesAsync();
-    refreshTimer = new Timer(async _ => await InvokeAsync(async () =>
+    protected override async Task OnInitializedAsync()
     {
         await LoadPortStatusesAsync();
-        StateHasChanged();
-    }), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
-}
+        refreshTimer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await LoadPortStatusesAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+    }
 
-private async Task LoadPortStatusesAsync()
-{
-    try
+    private async Task LoadPortStatusesAsync()
     {
-        allPortStatuses = await UniFiService.GetAllPortsStatusAsync();
+        try
+        {
+            allPortStatuses = await UniFiService.GetAllPortsStatusAsync();
+            UpdateFilteredLists();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error loading port statuses: {ex.Message}", "error");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void UpdateFilteredLists()
+    {
+        IReadOnlySet<int> monitored = UniFiService.MonitoredPorts;
+        monitoredStatuses = allPortStatuses.Where(p => monitored.Contains(p.PortNumber)).ToList();
+        availablePorts = allPortStatuses.Where(p => !monitored.Contains(p.PortNumber)).ToList();
+    }
+
+    private void AddSelectedPort()
+    {
+        if (selectedPortNumber == 0)
+        {
+            return;
+        }
+
+        UniFiService.AddMonitoredPort(selectedPortNumber);
+        PortStatus? port = allPortStatuses.FirstOrDefault(p => p.PortNumber == selectedPortNumber);
+        ShowStatus($"Added {port?.PortName ?? $"Port {selectedPortNumber}"} to panel", "success");
+        selectedPortNumber = 0;
         UpdateFilteredLists();
     }
-    catch (Exception ex)
-    {
-        ShowStatus($"Error loading port statuses: {ex.Message}", "error");
-    }
-    finally
-    {
-        isLoading = false;
-    }
-}
 
-private void UpdateFilteredLists()
-{
-    IReadOnlySet<int> monitored = UniFiService.MonitoredPorts;
-    monitoredStatuses = allPortStatuses.Where(p => monitored.Contains(p.PortNumber)).ToList();
-    availablePorts = allPortStatuses.Where(p => !monitored.Contains(p.PortNumber)).ToList();
-}
-
-private void AddSelectedPort()
-{
-    if (selectedPortNumber == 0)
+    private void RemovePort(int portNumber)
     {
-        return;
+        UniFiService.RemoveMonitoredPort(portNumber);
+        PortStatus? port = allPortStatuses.FirstOrDefault(p => p.PortNumber == portNumber);
+        ShowStatus($"Removed {port?.PortName ?? $"Port {portNumber}"} from panel", "success");
+        UpdateFilteredLists();
     }
 
-    UniFiService.AddMonitoredPort(selectedPortNumber);
-    PortStatus? port = allPortStatuses.FirstOrDefault(p => p.PortNumber == selectedPortNumber);
-    ShowStatus($"Added {port?.PortName ?? $"Port {selectedPortNumber}"} to panel", "success");
-    selectedPortNumber = 0;
-    UpdateFilteredLists();
-}
-
-private void RemovePort(int portNumber)
-{
-    UniFiService.RemoveMonitoredPort(portNumber);
-    PortStatus? port = allPortStatuses.FirstOrDefault(p => p.PortNumber == portNumber);
-    ShowStatus($"Removed {port?.PortName ?? $"Port {portNumber}"} from panel", "success");
-    UpdateFilteredLists();
-}
-
-private async Task RefreshAllAsync()
-{
-    ShowStatus("Refreshing...", "info");
-    isLoading = true;
-    await LoadPortStatusesAsync();
-}
+    private async Task RefreshAllAsync()
+    {
+        ShowStatus("Refreshing...", "info");
+        isLoading = true;
+        await LoadPortStatusesAsync();
+    }
 
     private async Task HandleToggleAsync(int portNumber, bool enable)
     {
+        if (isMasterToggling)
+        {
+            ShowStatus("Master operation in progress; try individual toggles later.", "info");
+            return;
+        }
+
         togglingPorts.Add(portNumber);
         ShowStatus($"{(enable ? "Enabling" : "Disabling")} port {portNumber}...", "info");
 
@@ -175,6 +195,46 @@ private async Task RefreshAllAsync()
         finally
         {
             togglingPorts.Remove(portNumber);
+        }
+    }
+
+    private bool AllMonitoredOn => monitoredStatuses.Count > 0 && monitoredStatuses.All(p => p.PoeEnabled);
+
+    private async Task HandleMasterToggleAsync(bool enable)
+    {
+        if (monitoredStatuses.Count == 0)
+        {
+            ShowStatus("No monitored ports to change.", "info");
+            return;
+        }
+
+        isMasterToggling = true;
+        ShowStatus($"{(enable ? "Enabling" : "Disabling")} all monitored ports...", "info");
+
+        try
+        {
+            IEnumerable<int> ports = monitoredStatuses.Select(p => p.PortNumber);
+            bool success = await UniFiService.SetPortsStateAsync(ports, enable);
+
+            if (success)
+            {
+                ShowStatus($"All monitored ports {(enable ? "enabled" : "disabled")}", "success");
+            }
+            else
+            {
+                ShowStatus($"Failed to {(enable ? "enable" : "disable")} monitored ports", "error");
+            }
+
+            await Task.Delay(1000);
+            await LoadPortStatusesAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error toggling monitored ports: {ex.Message}", "error");
+        }
+        finally
+        {
+            isMasterToggling = false;
         }
     }
 
